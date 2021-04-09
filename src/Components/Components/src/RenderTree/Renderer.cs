@@ -369,6 +369,16 @@ namespace Microsoft.AspNetCore.Components.RenderTree
             frame.AttributeEventHandlerIdField = id;
         }
 
+
+        internal void ReplaceDelegateForEventHandlerForId(ulong attributeEventHandlerIdField, MulticastDelegate newDelegate)
+        {
+            this._eventBindings[attributeEventHandlerIdField] = new EventCallback(newDelegate.Target as IHandleEvent, newDelegate);
+        }
+        internal void ReplaceDelegateForEventHandlerForId(ulong attributeEventHandlerIdField, ref EventCallback eventCallback)
+        {
+            this._eventBindings[attributeEventHandlerIdField] = eventCallback;
+        }
+
         /// <summary>
         /// Schedules a render for the specified <paramref name="componentId"/>. Its display
         /// will be populated using the specified <paramref name="renderFragment"/>.

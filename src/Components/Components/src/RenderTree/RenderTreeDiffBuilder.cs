@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Components.Rendering;
 
@@ -719,6 +720,31 @@ namespace Microsoft.AspNetCore.Components.RenderTree
             var valueChanged = !Equals(oldFrame.AttributeValueField, newFrame.AttributeValueField);
             if (valueChanged)
             {
+                if (oldFrame.AttributeValueField is EventCallback oldCallBack &&
+                      newFrame.AttributeValueField is EventCallback newCallBack)
+                {
+                    var callBackEquals = EventCallBackEquals(ref oldCallBack, ref newCallBack);
+
+                    if (callBackEquals && oldFrame.AttributeEventHandlerIdField > 0)
+                    {
+                        diffContext.Renderer.ReplaceDelegateForEventHandlerForId(oldFrame.AttributeEventHandlerIdField, ref newCallBack);
+                        newFrame.AttributeEventHandlerIdField = oldFrame.AttributeEventHandlerIdField;
+                        return;
+                    }
+                }
+                else if (oldFrame.AttributeValueField is MulticastDelegate oldDelegate &&
+                    newFrame.AttributeValueField is MulticastDelegate newDelegate)
+                {
+                    var delegateEquals = DelegateEquals(oldDelegate, newDelegate);
+
+                    if (delegateEquals && oldFrame.AttributeEventHandlerIdField > 0)
+                    {
+                        diffContext.Renderer.ReplaceDelegateForEventHandlerForId(oldFrame.AttributeEventHandlerIdField, newDelegate);
+                        newFrame.AttributeEventHandlerIdField = oldFrame.AttributeEventHandlerIdField;
+                        return;
+                    }
+                }
+
                 InitializeNewAttributeFrame(ref diffContext, ref newFrame);
                 var referenceFrameIndex = diffContext.ReferenceFrames.Append(newFrame);
                 diffContext.Edits.Append(RenderTreeEdit.SetAttribute(diffContext.SiblingIndex, referenceFrameIndex));
@@ -739,6 +765,68 @@ namespace Microsoft.AspNetCore.Components.RenderTree
                 newFrame = oldFrame;
             }
         }
+
+
+        private static bool EventCallBackEquals(ref EventCallback left, ref EventCallback right)
+        {
+            if (left.Receiver != right.Receiver &&
+                (left.RequiresExplicitReceiver || right.RequiresExplicitReceiver))
+            {
+                return false;
+            }
+
+            return DelegateEquals(left.Delegate, right.Delegate);
+        }
+
+
+        private static bool DelegateEquals(Delegate left, Delegate right)
+        {
+            if (left == null || right == null)
+            {
+                return left == right;
+            }
+
+            var oldTargetType = left.Target?.GetType();
+            var newTargetType = right.Target?.GetType();
+
+            if (oldTargetType == null || newTargetType == null ||
+                oldTargetType != newTargetType ||
+                !oldTargetType.CustomAttributes.Any(x => x.AttributeType == typeof(CompilerGeneratedAttribute))
+                )
+            {
+                return false;
+            }
+
+            foreach (var property in oldTargetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                var leftValue = property.GetValue(left.Target);
+                var rightValue = property.GetValue(right.Target);
+
+                if (!Equals(leftValue, rightValue))
+                {
+                    if (leftValue is Delegate leftDelegate && rightValue is Delegate rightDelegate)
+                    {
+                        if (!DelegateEquals(leftDelegate, rightDelegate))
+                        {
+                            return false;
+                        }
+                    } else if (leftValue is EventCallback leftEventCallback && rightValue is EventCallback rightEventCallBack)
+                    {
+                        if (!EventCallBackEquals(ref leftEventCallback, ref rightEventCallBack))
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
 
         private static void InsertNewFrame(ref DiffContext diffContext, int newFrameIndex)
         {
